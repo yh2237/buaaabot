@@ -31,6 +31,14 @@ BuaaaBotは、ほとんどの機能をAPIに頼っているので、各自でAPI
     pip install -r requirements.txt
     ```
 3. `.env`ファイルを以下に合わせて作成し、Discordなどのトークンを入力してください：
+    ```
+    DISCORD_TOKEN=""
+    BINGKEY=""
+    OPENAI=""
+    COHERE=""
+    REMOVEBG=""
+    GEMINI=""
+    ```
 
 ## 🚀 使い方
 
