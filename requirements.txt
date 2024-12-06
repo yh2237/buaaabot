@@ -1,0 +1,14 @@
+requests
+aiohttp
+discord.py
+cohere
+pydub
+rembg
+selenium
+openai
+Pillow
+backgroundremover
+python-dotenv
+textwrap
+google-generativeai
+IPython
