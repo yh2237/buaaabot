@@ -42,6 +42,9 @@ BuaaaBotは、ほとんどの機能をAPIに頼っているので、各自でAPI
 4. `bot.py`内の116行目を指定の通りに書き換える
    ただ単に実装がだるかっただけですごめんなさい。
 
+5. あなたのPCにあったchromedriverをダウンロードする
+   [ダウンロード](https://googlechromelabs.github.io/chrome-for-testing/#stable)
+
 ## 🚀 使い方
 
 1. Botを起動:
