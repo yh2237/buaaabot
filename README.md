@@ -62,6 +62,10 @@ BuaaaBotは、ほとんどの機能をAPIに頼っているので、各自でAPI
 4. プッシュします (`git push origin feature/YourFeature`)
 5. プルリクエストを作成しましょう！
 
+## 💛 Special Thanks
+
+れいね
+
 ## 📜 ライセンス
 
 このプロジェクトは、[MITライセンス](LICENSE)のもとで公開されています。
