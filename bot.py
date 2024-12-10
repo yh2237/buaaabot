@@ -138,28 +138,22 @@ async def about(ctx):
         version = data.get("version", "Unknown")
         update_detail = data.get("update_detail", "詳細なし")
         github_url = data.get("github_url", None)
-
-        if github_url:
-            title = f"[{backendname}]({github_url}) {version}"
-        else:
-            title = f"{backendname} {version}"
+        title = f"{backendname} {version}"
 
         embed = discord.Embed(
             title=title,
             color=discord.Color.blue(),
             description=update_detail
         )
+        if github_url:
+            embed.add_field(name="GitHub", value=f"[{backendname}]({github_url})", inline=False)
+
         original_url = "https://github.com/buachigithub/buaaabot/"
 
         if github_url != original_url:
             embed.set_footer(
-                text="このボットはBuaaaBotからフォークされたバージョンを使っています。",
+                text="このボットは[BuaaaBot]({original_url})からフォークされたバージョンを使っています。",
                 icon_url=None  
-            )
-            embed.add_field(
-                name="元のリポジトリ",
-                value=f"[BuaaaBot]({original_url})",
-                inline=False
             )
 
         await ctx.reply(embed=embed)
