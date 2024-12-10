@@ -18,7 +18,6 @@ from io import BytesIO
 from selenium import webdriver
 import urllib.request
 import os
-from openai import OpenAI
 import io
 from PIL import Image
 import time
@@ -46,7 +45,7 @@ r'''
 | __ ) _   _  __ _  __ _  __ _| __ )  ___ | |_ 
 |  _ \| | | |/ _` |/ _` |/ _` |  _ \ / _ \| __|
 | |_) | |_| | (_| | (_| | (_| | |_) | (_) | |_ 
-|____/ \__,_|\__,_|\__,_|\__,_|____/ \___/ \__|  v0.1
+|____/ \__,_|\__,_|\__,_|\__,_|____/ \___/ \__|  v0.2a
 
 Made By Sotaro Shimada
 
@@ -79,9 +78,6 @@ for i in range(len(filepath_temp)):
 intents = discord.Intents.all()
 intents.message_content = True
 bot = commands.Bot(command_prefix='bu!', intents=intents)
-
-# OpenAIのキー
-openai_client = OpenAI(api_key=os.getenv('OPENAI'))
 
 # 画像検索のやつのキー(Microsoft Bing Search API)
 subscription_key = os.getenv('BINGKEY')
@@ -135,8 +131,6 @@ async def on_ready():
 @bot.hybrid_command(name="webpageshot", aliases=['wp', 'web', "url"], brief="指定されたURLのスクリーンショットを取得します")
 @allowed_installs(guilds=True, users=True)
 async def webpageshot(ctx, url:str):
-    translator = get_translator(ctx.author.id)
-    _ = translator.gettext
     if ctx.interaction:
         await ctx.interaction.response.defer()
     if not url:
@@ -187,8 +181,6 @@ async def webpageshot(ctx, url:str):
 @bot.hybrid_command(name="trace", aliases=['t', 'a', "anime"],brief="スクリーンショット画像からアニメを特定します")
 @allowed_installs(guilds=True, users=True)
 async def trace(ctx,file:discord.Attachment):
-    translator = get_translator(ctx.author.id)
-    _ = translator.gettext
     if ctx.interaction:
         await ctx.interaction.response.defer()
     if len(ctx.message.attachments) == 0:
@@ -247,8 +239,6 @@ async def trace(ctx,file:discord.Attachment):
 @bot.hybrid_command(name="nametogender", aliases=['name', 'gender'], brief="名前から性別判定（英語のみ）します")
 @allowed_installs(guilds=True, users=True)
 async def name(ctx, *, name:str):
-    translator = get_translator(ctx.author.id)
-    _ = translator.gettext
     url = f"https://api.genderize.io/?name={name}"
     response = requests.get(url)
     data = response.json()
@@ -270,8 +260,6 @@ async def reineandbuachi(ctx):
 @bot.hybrid_command(name="imagesearch", aliases=['image', 'im', "search"], brief="Bing画像検索をします")
 @allowed_installs(guilds=True, users=True)
 async def imagesearch(ctx, word: str):
-    translator = get_translator(ctx.author.id)
-    _ = translator.gettext
     if ctx.interaction:
         await ctx.interaction.response.defer()
     headers = {"Ocp-Apim-Subscription-Key": subscription_key}
@@ -347,8 +335,6 @@ async def imagesearch(ctx, word: str):
 @bot.hybrid_command(name='loudness', aliases=['l', 'loud', "loudpena"] ,brief="YouTubeでラウドネスがいくつ下がるかを判定します")
 @allowed_installs(guilds=True, users=True)
 async def loudness(ctx,file:discord.Attachment):
-    translator = get_translator(ctx.author.id)
-    _ = translator.gettext
     if not ctx.message.attachments:
         await ctx.reply(("音声ファイルが添付されていません。"))
         return
@@ -367,8 +353,6 @@ async def loudness(ctx,file:discord.Attachment):
 @bot.hybrid_command(name='background', aliases=['bg', 'back', 'haikei'], brief="添付画像の背景を削除")
 @allowed_installs(guilds=True, users=True)
 async def background(ctx, url: typing.Optional[discord.Attachment]):
-    translator = get_translator(ctx.author.id)
-    _ = translator.gettext
     if ctx.interaction:
         await ctx.interaction.response.defer()
     url = url.url
@@ -416,8 +400,6 @@ async def background(ctx, url: typing.Optional[discord.Attachment]):
 @bot.hybrid_command(name='backgroundv2', aliases=['bg2', 'back2', "haikei2"], brief="添付画像の背景を削除2（ベータ）", integration_types=1)
 @allowed_installs(guilds=True, users=True)
 async def backgroundv2(ctx, type: int, file: discord.Attachment):
-    translator = get_translator(ctx.author.id)
-    _ = translator.gettext
 
     if not ctx.message.attachments:
         await ctx.reply(("ファイルが添付されていないようです。"))
@@ -547,8 +529,6 @@ async def imagesearch(ctx, word: str):
 # QuizAI
 @bot.hybrid_command(name="quiz", aliases=['q', 'qz'], brief="Quiz")
 async def quiz(ctx, *, genre: str = None):
-    translator = get_translator(ctx.author.id)
-    _ = translator.gettext
     # ジャンル指定がないときはノンジャンル
     if genre is None:
         genre = 'random'
