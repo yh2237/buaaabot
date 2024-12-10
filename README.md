@@ -3,7 +3,7 @@
 BuaaaBotは、創作を支援する便利なツールとユニークなユーモア機能を搭載したDiscord向けのマルチツールBotです！  
 背景切り抜きやYouTube基準でのラウドネスペナルティ測定など、創作活動をサポートする一方、クイズゲームや名前から性別をあてる機能など遊び心満載の機能も楽しめます！
 
-BuaaaBotは、ほとんどの機能をAPIに頼っているので、各自でAPIキーを取得する必要があります！
+BuaaaBotは、ほとんどの機能をAPIに頼っているので、各自でAPIキーを取得する必要があります！( 詳細は下へ )
 
 ## 🌟 主な機能
 
@@ -24,7 +24,7 @@ BuaaaBotは、ほとんどの機能をAPIに頼っているので、各自でAPI
 1. リポジトリをクローン！:
     ```bash
     git clone https://github.com/buachigithub/buaaabot.git
-    cd BuaaaBot
+    cd buaaabot
     ```
 2. 必要なパッケージをインストール！:
     ```bash
@@ -34,15 +34,21 @@ BuaaaBotは、ほとんどの機能をAPIに頼っているので、各自でAPI
     ```
     DISCORD_TOKEN=""
     BINGKEY=""
-    OPENAI=""
     COHERE=""
     REMOVEBG=""
     GEMINI=""
     ```
-4. `bot.py`内の116行目を指定の通りに書き換える
-   ただ単に実装がだるかっただけですごめんなさい。
+    なお、このトークンはそれぞれ以下の用途で使用されます。
+- DISCORD_TOKEN：Discordボットを動かすために必要
+- BINGKEY：画像の検索に使用
+- COHERE：精度を求める回答の際に使用
+- REMOVEBG：背景の切り抜きに使用
+- GEMINI：精度より速度を求める際や、画像の処理をする際に使用
+  
+5. `bot.py`内の116行目のchannel.idを、起動通知してほしいテキストチャンネルのIDに置き換える
+   （実装がめんどくさかっただけです、いつか簡単に変更できるよう実装します）
 
-5. あなたのPCにあったchromedriverをダウンロードする
+6. あなたのPCに合った、最新のchromedriverをダウンロードし、bot.pyと同じ場所に配置してください！
    [ダウンロード](https://googlechromelabs.github.io/chrome-for-testing/#stable)
 
 ## 🚀 使い方
@@ -51,20 +57,23 @@ BuaaaBotは、ほとんどの機能をAPIに頼っているので、各自でAPI
     ```bash
     python bot.py
     ```
-2. DiscordサーバーにBotを追加し、スラッシュコマンドから使い方を参照してください！
+2. DiscordサーバーにBotを追加し、スラッシュコマンドより使い方を参照してください！
 
 ## 🤝 コントリビュート
 
-フィードバックや改善案は大歓迎です！以下の手順でご協力ください：
-1. このリポジトリをフォークします
-2. ブランチを作成します (`git checkout -b feature/YourFeature`)
-3. 変更をコミットします (`git commit -m 'Add YourFeature'`)
-4. プッシュします (`git push origin feature/YourFeature`)
-5. プルリクエストを作成しましょう！
+フィードバックや改善案は大歓迎です！プルリクエストを送ってください！
 
 ## 💛 Special Thanks
 
-れいね
+#### れいね（環境構築テスト）
+Windowsでの環境構築を問題なく行なうためのテストを手伝っていただきました！
+ありがとうございます。
+
+## ❓ よくある問題
+- 「ファイルが見つかりません」と表示された場合：原因は調査中ですが、その状態でエンターを押すと続行できます。
+- moviepy関連のエラーが発生した場合：以下の手順に従ってください（moviepyのバージョン変更をするので慎重に！）
+1. `pip uninstall moviepy`でmoviepyを一旦アンインストール
+2. `pip install moviepy==2.0.0.dev2`で互換性があるバージョンでインストール
 
 ## 📜 ライセンス
 
