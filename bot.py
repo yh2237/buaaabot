@@ -19,6 +19,7 @@ from selenium import webdriver
 import urllib.request
 import os
 import io
+import json
 from PIL import Image
 import time
 from backgroundremover.bg import remove
@@ -45,7 +46,7 @@ r'''
 | __ ) _   _  __ _  __ _  __ _| __ )  ___ | |_ 
 |  _ \| | | |/ _` |/ _` |/ _` |  _ \ / _ \| __|
 | |_) | |_| | (_| | (_| | (_| | |_) | (_) | |_ 
-|____/ \__,_|\__,_|\__,_|\__,_|____/ \___/ \__|  v0.2a
+|____/ \__,_|\__,_|\__,_|\__,_|____/ \___/ \__| 
 
 Made By Sotaro Shimada
 
@@ -126,6 +127,46 @@ async def on_ready():
     )
     await channel.send(response.text)
     await bot.tree.sync() # スラッシュコマンド更新
+
+@bot.hybrid_command(name="about", brief="Botの情報を表示します")
+async def about(ctx):
+    try:
+        with open(os.path.join(filepath, "about.json"), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        backendname = data.get("backendname", "Unknown")
+        version = data.get("version", "Unknown")
+        update_detail = data.get("update_detail", "詳細なし")
+        github_url = data.get("github_url", None)
+
+        if github_url:
+            title = f"[{backendname}]({github_url}) {version}"
+        else:
+            title = f"{backendname} {version}"
+
+        embed = discord.Embed(
+            title=title,
+            color=discord.Color.blue(),
+            description=update_detail
+        )
+        original_url = "https://github.com/buachigithub/buaaabot/"
+
+        if github_url != original_url:
+            embed.set_footer(
+                text="このボットはBuaaaBotからフォークされたバージョンを使っています。",
+                icon_url=None  
+            )
+            embed.add_field(
+                name="元のリポジトリ",
+                value=f"[BuaaaBot]({original_url})",
+                inline=False
+            )
+
+        await ctx.reply(embed=embed)
+
+    except Exception as e:
+        await ctx.reply(f"エラーが発生しました: {str(e)}")
+
     
 # サイトのスクショ取得
 @bot.hybrid_command(name="webpageshot", aliases=['wp', 'web', "url"], brief="指定されたURLのスクリーンショットを取得します")
