@@ -29,6 +29,8 @@ import google.generativeai as genai
 from IPython.display import display
 from IPython.display import Markdown
 
+import sys
+
 
 def to_markdown(text):
   text = text.replace('•', '  *')
@@ -133,11 +135,28 @@ async def about(ctx):
     try:
         with open(os.path.join(filepath, "about.json"), "r", encoding="utf-8") as f:
             data = json.load(f)
-        
+
         backendname = data.get("backendname", "Unknown")
         version = data.get("version", "Unknown")
-        update_detail = data.get("update_detail", "詳細なし")
         github_url = data.get("github_url", None)
+
+        if not github_url:
+            raise ValueError("GitHub URLが設定されていません。")
+
+        api_url = github_url.rstrip('/').replace("https://github.com/", "https://api.github.com/repos/") + "/releases"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(api_url) as response:
+                if response.status == 200:
+                    releases = await response.json()
+                    update_detail = "詳細なし"
+                    for release in releases:
+                        if release.get("tag_name") == version:
+                            update_detail = release.get("body", "詳細なし")
+                            break
+                else:
+                    update_detail = "GitHub APIの取得に失敗しました。"
+
         title = f"{backendname} {version}"
 
         embed = discord.Embed(
@@ -153,7 +172,7 @@ async def about(ctx):
         if github_url != original_url:
             embed.set_footer(
                 text="このボットは[BuaaaBot]({original_url})からフォークされたバージョンを使っています。",
-                icon_url=None  
+                icon_url=None
             )
 
         await ctx.reply(embed=embed)
@@ -161,6 +180,19 @@ async def about(ctx):
     except Exception as e:
         await ctx.reply(f"エラーが発生しました: {str(e)}")
 
+
+# 再起動コマンド（ボットのオーナーのみ実行可能）
+@bot.command(name="restart", brief="Botを再起動します")
+@commands.is_owner() 
+async def restart(ctx):
+    try:
+        await ctx.reply("再起動します...")
+
+        # 再起動のコマンド実行
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    except Exception as e:
+        await ctx.reply(f"再起動中にエラーが発生しました: {str(e)}")
     
 # サイトのスクショ取得
 @bot.hybrid_command(name="webpageshot", aliases=['wp', 'web', "url"], brief="指定されたURLのスクリーンショットを取得します")
