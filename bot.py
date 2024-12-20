@@ -3,7 +3,7 @@ import urllib.parse
 import aiohttp
 import typing
 import discord
-from discord import Client, Intents, Interaction
+from discord import Client, Intents, Interaction, Member
 from discord.app_commands import (
     CommandTree,
     allowed_installs, guild_install, user_install,
@@ -51,13 +51,6 @@ r'''
 |____/ \__,_|\__,_|\__,_|\__,_|____/ \___/ \__| 
 
 Made By Sotaro Shimada
-
-
-やること
-
-・旧仕様のままのものを新仕様に書き換える <=多分できた
-・不要なライブラリをアンロードする
-・汚いクソコードを綺麗にする
 
 ===========================================================
 ===========================================================
@@ -114,6 +107,7 @@ async def on_ready():
     print('きどーしたよ')
     channel = bot.get_channel(1210374862217158776) # 起動通知をするチャンネルをここに入れる
     day = dt_now.strftime('%Y年%m月%d日 %H:%M:%S')
+    # セルフホストならここを変える
     mes = f'''以下の条件で、BuaaaBotが今起動したことをお知らせする文章で応答してください。
     ・あなたの名前はDiscordボットの「BuaaaBot」
     ・今の日時時間は{day}
@@ -513,6 +507,42 @@ async def backgroundv2(ctx, type: int, file: discord.Attachment):
         await ctx.send(("type には 1 または 2 を指定して下さい。"))
         return
     
+
+# コンテキストメニューからの背景削除
+class ContextMenu(discord.app_commands.ContextMenu):
+    def __init__(self, name):
+        super().__init__(name=name, callback=self.callback)
+
+    async def callback(self, interaction: discord.Interaction, message: discord.Message):
+        if not message.attachments:
+            await interaction.response.send_message("ファイルが添付されていないようです。", ephemeral=True)
+            return
+
+        attachment = message.attachments[0]
+
+        if not attachment.content_type.startswith('image'):
+            await interaction.response.send_message("添付されたファイルが画像ではないようです。", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=False, thinking=True)
+        input_path = attachment.filename
+        file_path = os.path.join(os.getcwd(), input_path)
+        await attachment.save(file_path)
+        output_path = 'output.png'
+        model_choices = ["u2net", "u2net_human_seg", "u2netp"]
+        with open(file_path, "rb") as f:
+            data = f.read()
+            img = remove(data, model_name=model_choices[0],
+                         alpha_matting=True,
+                         alpha_matting_foreground_threshold=240,
+                         alpha_matting_background_threshold=10,
+                         alpha_matting_erode_structure_size=10,
+                         alpha_matting_base_size=1000)
+        with open(output_path, "wb") as f:
+            f.write(img)
+        await interaction.followup.send(file=discord.File(output_path))
+context_menu = ContextMenu(name="背景を削除（ベータ）")
+bot.tree.add_command(context_menu)
+
 
 # SimpleAI
 @bot.hybrid_command(name="ai", aliases=['aichat', 'chat'], brief="AIと対話できます（無加工）")
