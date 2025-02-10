@@ -1,4 +1,3 @@
-import requests
 import urllib.parse
 import aiohttp
 import typing
@@ -13,7 +12,8 @@ import cohere
 import datetime
 from discord.ext import commands
 from pydub import AudioSegment
-from rembg import remove
+from rembg import remove as rembg_remove
+from backgroundremover.bg import remove as bg_remove
 from io import BytesIO 
 from selenium import webdriver
 import urllib.request
@@ -22,7 +22,6 @@ import io
 import json
 from PIL import Image
 import time
-from backgroundremover.bg import remove
 from dotenv import load_dotenv
 import textwrap
 import google.generativeai as genai
@@ -236,86 +235,94 @@ async def webpageshot(ctx, url:str):
         translated_message = _(f"エラーが発生しました：{e}").format(e=e)
         await ctx.send(translated_message)
 
-
-
-#tracemoe
-@bot.hybrid_command(name="trace", aliases=['t', 'a', "anime"],brief="スクリーンショット画像からアニメを特定します")
+@bot.hybrid_command(name="trace", aliases=['t', 'a', "anime"], brief="スクリーンショット画像からアニメを特定します")
 @allowed_installs(guilds=True, users=True)
-async def trace(ctx,file:discord.Attachment):
+async def trace(ctx, file: discord.Attachment):
     if ctx.interaction:
         await ctx.interaction.response.defer()
     if len(ctx.message.attachments) == 0:
-        await ctx.send(("画像が添付されていません。"))
+        await ctx.send("画像が添付されていません。")
         return
 
     image_url = ctx.message.attachments[0].url
-    res = requests.get("https://api.trace.moe/search?anilistInfo&url={}".format(urllib.parse.quote_plus(image_url))).json()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"https://api.trace.moe/search?anilistInfo&url={urllib.parse.quote_plus(image_url)}") as response:
+            if response.status != 200:
+                await ctx.send(f"エラーが発生しました: {response.status}")
+                return
 
-    if res.get("error", ""):
-        await ctx.send(("エラーが発生しました: {}".format(res["error"])))
-        return
+            res = await response.json()
 
-    # json抽出ライブラリをケチってしまった結果めんどいなこれ
-    result = res["result"][0]
-    title = result["anilist"]["title"]["native"]
-    episode = result["episode"]
-    start_time = result["from"]
-    end_time = result["to"]
-    video_url = result["video"] + "&size=l"
-    image_url = result["image"]
-    similarity = result["similarity"] * 100
-    is_adult = result["anilist"]["isAdult"]
+            if res.get("error", ""):
+                await ctx.send(f"エラーが発生しました: {res['error']}")
+                return
 
-    start_minutes, start_seconds = divmod(start_time, 60)
-    end_minutes, end_seconds = divmod(end_time, 60)
+            # json抽出ライブラリをケチってしまった結果めんどいなこれ
+            result = res["result"][0]
+            title = result["anilist"]["title"]["native"]
+            episode = result["episode"]
+            start_time = result["from"]
+            end_time = result["to"]
+            video_url = result["video"] + "&size=l"
+            image_url = result["image"]
+            similarity = result["similarity"] * 100
+            is_adult = result["anilist"]["isAdult"]
 
+            start_minutes, start_seconds = divmod(start_time, 60)
+            end_minutes, end_seconds = divmod(end_time, 60)
 
-    # Embed作成
-    embed = discord.Embed(title=title, color=discord.Color.blue())
-    embed.add_field(name=(("エピソード")), value=episode, inline=True)
-    embed.add_field(name=(("開始地点")), value="{:02d}:{:02d}".format(int(start_minutes), int(start_seconds)), inline=True)
-    embed.add_field(name=(("終了地点")), value="{:02d}:{:02d}".format(int(end_minutes), int(end_seconds)), inline=True)
-    embed.add_field(name=(("一致度")), value="{:.2f}%".format(similarity), inline=True) # 一致度をパーセント表記に
-    embed.add_field(name=(("動画ファイル")), value=(("[見る]({})")).format(video_url), inline=False)
-    if is_adult:
-        embed.add_field(name=(("注意")), value=(("不適切な表現が含まれている可能性があります。")), inline=False)
-    else:
-        # 画像をダウンロードしてセット
-        response = requests.get(image_url)
-        if response.status_code == 200:
-            with open("image.jpg", "wb") as file:
-                file.write(response.content)
-            file = discord.File("image.jpg", filename="image.jpg")
-            embed.set_image(url="attachment://image.jpg")
-            await ctx.send(file=file, embed=embed)
-        else:
-            embed.add_field(name=(("画像の取得に失敗しました")), value=(("サーバーからの応答がありませんでした。")), inline=False)
-            await ctx.send(embed=embed)
+            # Embed作成
+            embed = discord.Embed(title=title, color=discord.Color.blue())
+            embed.add_field(name="エピソード", value=episode, inline=True)
+            embed.add_field(name="開始地点", value="{:02d}:{:02d}".format(int(start_minutes), int(start_seconds)), inline=True)
+            embed.add_field(name="終了地点", value="{:02d}:{:02d}".format(int(end_minutes), int(end_seconds)), inline=True)
+            embed.add_field(name="一致度", value="{:.2f}%".format(similarity), inline=True)
+            embed.add_field(name="動画ファイル", value=f"[見る]({video_url})", inline=False)
+            if is_adult:
+                embed.add_field(name="注意", value="不適切な表現が含まれている可能性があります。", inline=False)
 
+            async with session.get(image_url) as image_response:
+                if image_response.status == 200:
+                    img_data = await image_response.read()
+                    image_file = io.BytesIO(img_data)  
 
-
-
+                    file = discord.File(image_file, filename="image.jpg")
+                    embed.set_image(url="attachment://image.jpg")
+                    await ctx.send(file=file, embed=embed)
+                else:
+                    embed.add_field(name="画像の取得に失敗しました", value="サーバーからの応答がありませんでした。", inline=False)
+                    await ctx.send(embed=embed)
 
 # 性別判定
 @bot.hybrid_command(name="nametogender", aliases=['name', 'gender'], brief="名前から性別判定（英語のみ）します")
 @allowed_installs(guilds=True, users=True)
 async def name(ctx, *, name:str):
     url = f"https://api.genderize.io/?name={name}"
-    response = requests.get(url)
-    data = response.json()
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            data = await response.json()
     
     gender = data.get('gender')
     if gender == 'male':
-        translated_message = _(f'{name}さんは男性です！').format(name=name)
+        translated_message = (f'{name}さんは男性です！').format(name=name)
     elif gender == 'female':
-        translated_message = _(f'{name}さんは女性です！').format(name=name)
+        translated_message = (f'{name}さんは女性です！').format(name=name)
     else:
-        translated_message = _(f'{name}さんの性別は不明です。').format(name=name)
+        translated_message = (f'{name}さんの性別は不明です。').format(name=name)
+        
     await ctx.reply(replace_at(translated_message))
+
+    
 # RB
 @bot.command(name="reineandbuachi", aliases=['rb'], brief="おっと。。。")
 async def reineandbuachi(ctx):
     await ctx.reply('Reine & Buachi House!')
+
+import aiohttp
+import discord
+from discord.ext import commands
+from aiohttp import ClientSession
 
 # 画像検索
 @bot.hybrid_command(name="imagesearch", aliases=['image', 'im', "search"], brief="Bing画像検索をします")
@@ -323,23 +330,29 @@ async def reineandbuachi(ctx):
 async def imagesearch(ctx, word: str):
     if ctx.interaction:
         await ctx.interaction.response.defer()
+
     headers = {"Ocp-Apim-Subscription-Key": subscription_key}
     params = {"q": word, "count": 20}
-    response = requests.get(search_url, headers=headers, params=params)
-    search_results = response.json()
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(search_url, headers=headers, params=params) as response:
+            search_results = await response.json()
+
     if "value" in search_results:
         images = search_results["value"]
         current_index = 0
         image_info = images[current_index]
         embed = discord.Embed(title=image_info["name"], description=f"{current_index + 1}/20")
         embed.set_image(url=image_info["thumbnailUrl"])
-        embed.add_field(name=(("リンク先")), value=image_info["hostPageUrl"])
+        embed.add_field(name=("リンク先"), value=image_info["hostPageUrl"])
         message = await ctx.send(embed=embed)
         await message.add_reaction("⬅️")  
         await message.add_reaction("➡️")  
         await message.add_reaction("🔪")  
+
         def check(reaction, user):
             return user == ctx.message.author and str(reaction.emoji) in ["⬅️", "➡️", "🔪"]
+
         while True:
             try:
                 reaction, user = await bot.wait_for("reaction_add", timeout=60, check=check)
@@ -349,7 +362,7 @@ async def imagesearch(ctx, word: str):
                     image_info = images[current_index]
                     embed = discord.Embed(title=image_info["name"], description=f"{current_index + 1}/20")
                     embed.set_image(url=image_info["thumbnailUrl"])
-                    embed.add_field(name=(("リンク先")), value=image_info["hostPageUrl"])
+                    embed.add_field(name=("リンク先"), value=image_info["hostPageUrl"])
                     await message.edit(embed=embed)
                     await message.remove_reaction(reaction, user)
                 elif str(reaction.emoji) == "⬅️" and current_index > 0:
@@ -357,32 +370,31 @@ async def imagesearch(ctx, word: str):
                     image_info = images[current_index]
                     embed = discord.Embed(title=image_info["name"], description=f"{current_index + 1}/20")
                     embed.set_image(url=image_info["thumbnailUrl"])
-                    embed.add_field(name=(("リンク先")), value=image_info["hostPageUrl"])
+                    embed.add_field(name=("リンク先"), value=image_info["hostPageUrl"])
                     await message.edit(embed=embed)
                     await message.remove_reaction(reaction, user)
                 elif str(reaction.emoji) == "🔪": 
                     await message.remove_reaction(reaction, user)
                     await ctx.reply(("処理中です！"))
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(image_info["contentUrl"]) as resp:
-                            if resp.status != 200:
-                                return await ctx.send(('画像をダウンロードできませんでした。'))
-                            temp_file_path = "input.png"
-                            with open(temp_file_path, "wb") as temp_file:
-                                temp_file.write(await resp.read())
+                    async with session.get(image_info["contentUrl"]) as resp:
+                        if resp.status != 200:
+                            return await ctx.send(('画像をダウンロードできませんでした。'))
+                        temp_file_path = "input.png"
+                        with open(temp_file_path, "wb") as temp_file:
+                            temp_file.write(await resp.read())
 
-                            model_choices = ["u2net", "u2net_human_seg", "u2netp"]
-                            with open("input.png", "rb") as f:
-                                data = f.read()
-                                img = remove(data, model_name=model_choices[0],
-                                            alpha_matting=True,
-                                            alpha_matting_foreground_threshold=240,
-                                            alpha_matting_background_threshold=10,
-                                            alpha_matting_erode_structure_size=10,
-                                            alpha_matting_base_size=1000)
-                            with open("output.png", "wb") as f:
-                                f.write(img)
-                            await ctx.send(file=discord.File("output.png"))
+                        model_choices = ["u2net", "u2net_human_seg", "u2netp"]
+                        with open("input.png", "rb") as f:
+                            data = f.read()
+                            img = bg_remove(data, model_name=model_choices[0],
+                                        alpha_matting=True,
+                                        alpha_matting_foreground_threshold=240,
+                                        alpha_matting_background_threshold=10,
+                                        alpha_matting_erode_structure_size=10,
+                                        alpha_matting_base_size=1000)
+                        with open("output.png", "wb") as f:
+                            f.write(img)
+                        await ctx.send(file=discord.File("output.png"))
                 
             except TimeoutError:
                 break
@@ -390,25 +402,27 @@ async def imagesearch(ctx, word: str):
         await ctx.send(("画像が見つかりませんでした。"))
 
 
-
-
 # ラウドネス判定
 @bot.hybrid_command(name='loudness', aliases=['l', 'loud', "loudpena"] ,brief="YouTubeでラウドネスがいくつ下がるかを判定します")
 @allowed_installs(guilds=True, users=True)
-async def loudness(ctx,file:discord.Attachment):
+async def loudness(ctx, file: discord.Attachment):
     if not ctx.message.attachments:
-        await ctx.reply(("音声ファイルが添付されていません。"))
+        await ctx.reply("音声ファイルが添付されていません。")
         return
     audio_url = ctx.message.attachments[0].url
-    response = requests.get(audio_url)
-    if response.status_code != 200:
-        await ctx.reply(("音声ファイルのダウンロードに失敗しました。"))
-        return
-    audio_data = AudioSegment.from_file(BytesIO(response.content))
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.get(audio_url) as response:
+            if response.status != 200:
+                await ctx.reply("音声ファイルのダウンロードに失敗しました。")
+                return
+            audio_data = AudioSegment.from_file(BytesIO(await response.read()))
+    
     loudness = audio_data.dBFS
     loudness_penalty = loudness - (-17.5)
-    await ctx.reply((f'この音声のYouTubeでのラウドネスペナルティは -{loudness_penalty:.2f}です'))
+    await ctx.reply(f'この音声のYouTubeでのラウドネスペナルティは -{loudness_penalty:.2f}です')
 
+import aiohttp
 
 # 背景切り抜き
 @bot.hybrid_command(name='background', aliases=['bg', 'back', 'haikei'], brief="添付画像の背景を削除")
@@ -418,7 +432,7 @@ async def background(ctx, url: typing.Optional[discord.Attachment]):
         await ctx.interaction.response.defer()
     url = url.url
     if url is None:
-    # RIP チャンネル内画像切り抜き
+        # RIP チャンネル内画像切り抜き
         async for message in ctx.channel.history(limit=15):
             if message.attachments and message.attachments[0].content_type.startswith('image'):
                 url = message.attachments[0].url
@@ -428,19 +442,19 @@ async def background(ctx, url: typing.Optional[discord.Attachment]):
             return
 
     # 画像の背景を削除
-    response = requests.post(
-        'https://api.remove.bg/v1.0/removebg',
-        data={'image_url': url, 'size': 'auto'},
-        headers={'X-Api-Key': removebg_key},
-    )
-
-    if response.status_code == requests.codes.ok:
-        with open('no-bg.png', 'wb') as out:
-            out.write(response.content)
-        await ctx.send(file=discord.File('no-bg.png'))
-    else:
-        print("Error:", response.status_code, response.text)
-        await ctx.send(("エラーが発生しました。"))
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            'https://api.remove.bg/v1.0/removebg',
+            data={'image_url': url, 'size': 'auto'},
+            headers={'X-Api-Key': removebg_key},
+        ) as response:
+            if response.status == 200:
+                with open('no-bg.png', 'wb') as out:
+                    out.write(await response.read())
+                await ctx.send(file=discord.File('no-bg.png'))
+            else:
+                print("Error:", response.status, await response.text())
+                await ctx.send(("エラーが発生しました。"))
 
     # エラー
     error_messages = {
@@ -452,10 +466,19 @@ async def background(ctx, url: typing.Optional[discord.Attachment]):
         'insufficient_credits': (("クレジットが不足しています。"))
     }
 
-    for error, message in error_messages.items():
-        if error in response.text:
-            await ctx.send(message)
-            break
+    # エラーメッセージをチェック
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            'https://api.remove.bg/v1.0/removebg',
+            data={'image_url': url, 'size': 'auto'},
+            headers={'X-Api-Key': removebg_key},
+        ) as response:
+            if response.status == 200:
+                for error, message in error_messages.items():
+                    if error in await response.text():
+                        await ctx.send(message)
+                        break
+
 
 # removebgbeta
 @bot.hybrid_command(name='backgroundv2', aliases=['bg2', 'back2', "haikei2"], brief="添付画像の背景を削除2（ベータ）", integration_types=1)
@@ -484,7 +507,7 @@ async def backgroundv2(ctx, type: int, file: discord.Attachment):
         with open(input_path, 'rb') as i:
             with open(output_path, 'wb') as o:
                 input = i.read()
-                output = remove(input)
+                output = rembg_remove(input)
                 o.write(output)
                 
                 await ctx.send(file=discord.File(output_path))
@@ -493,7 +516,7 @@ async def backgroundv2(ctx, type: int, file: discord.Attachment):
         model_choices = ["u2net", "u2net_human_seg", "u2netp"]
         with open(input_path, "rb") as f:
             data = f.read()
-            img = remove(data, model_name=model_choices[0],
+            img = bg_remove(data, model_name=model_choices[0],
                          alpha_matting=True,
                          alpha_matting_foreground_threshold=240,
                          alpha_matting_background_threshold=10,
@@ -634,7 +657,7 @@ async def quiz(ctx, *, genre: str = None):
     print ('クイズAI')
     
     model = genai.GenerativeModel('gemini-1.5-flash')
-    prompt = f'「{genre}」というジャンルでクイズを1問のみ出題してください。なお、問題文のみを1行目のみに、その問題の答えのみを絶対2行目のみで応答してください。'
+    prompt = f'「{genre}」というジャンルで、1問のクイズを出題すること。1行目に問題文を記載し、2行目にその答えだけを記載すること。それ以降の行は一切作成せず、3行目以降は不要です。'
     response = co.chat(
         message=prompt,
         model='command-r-plus',
@@ -668,7 +691,7 @@ async def quiz(ctx, *, genre: str = None):
             await user_response.add_reaction('⏳')
 
             # 回答審査
-            validation_prompt = f'「"{question}"」という問題に対する模範解答は"{answer}"ですが、次の回答は正解になりますか？：「"{user_answer}"」正解になる場合はtrue、不正解になる場合はfalse、ギブアップと言っている場合はgiveと応答してください。なお、似ている回答でも正解とします。'
+            validation_prompt = f'「"{question}"」という問題に対する模範解答は"{answer}"だが、次の回答は正解になるか？：「"{user_answer}"」正解になる場合はtrue、不正解になる場合はfalse、ギブアップと言っている場合はgiveと応答すること。なお、似ている回答でも正解とする。'
             validation_response = model.generate_content(validation_prompt)
             validation_result = validation_response.text.strip().lower()
 
@@ -691,6 +714,5 @@ async def quiz(ctx, *, genre: str = None):
 
     if not correct:
         await ctx.send(replace_at(f"時間切れです。正解は {answer} です。"))
-        await ctx.send()
 
 bot.run(TOKEN)
