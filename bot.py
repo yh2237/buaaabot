@@ -24,7 +24,7 @@ from PIL import Image
 import time
 from dotenv import load_dotenv
 import textwrap
-import google.generativeai as genai
+from google import genai
 from IPython.display import display
 from IPython.display import Markdown
 
@@ -89,10 +89,11 @@ def replace_at(text: str) -> str:
 removebg_key = os.getenv('REMOVEBG')
 
 # Cohere Chat API Key
-co = cohere.Client(os.getenv('COHERE'))
+co = cohere.AsyncClient(os.getenv('COHERE'))
 
 GOOGLE_API_KEY=os.getenv('GEMINI')
-genai.configure(api_key=GOOGLE_API_KEY)
+
+geminiclient = genai.Client(api_key=GOOGLE_API_KEY)
 
 # 定義ここまで
 
@@ -114,7 +115,7 @@ async def on_ready():
     ・語尾は「にゃん！」
     ・BuaaaBotのオーナーはぶあち(Buachi)
     '''
-    response = co.chat(
+    response = await co.chat(
         message=mes, 
         model="command-r-plus", 
         temperature=0.9,
@@ -573,13 +574,18 @@ bot.tree.add_command(context_menu)
 async def ai(ctx, word: str , file: typing.Optional[discord.Attachment]):
     if ctx.interaction:
         await ctx.interaction.response.defer()
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash")
     if file is None:
-        response = model.generate_content([word])
+        response = await geminiclient.aio.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=f"{word}"
+        )
     else:
         file_data = await file.read() 
         img = Image.open(io.BytesIO(file_data))  
-        response = model.generate_content([word, img])
+        response = await geminiclient.aio.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=f"{[word, img]}"
+        )
     await ctx.reply(replace_at(response.text))
     
 # おじさん構文
@@ -655,10 +661,8 @@ async def quiz(ctx, *, genre: str = None):
     if ctx.interaction:
         await ctx.interaction.response.defer()
     print ('クイズAI')
-    
-    model = genai.GenerativeModel('gemini-1.5-flash')
     prompt = f'「{genre}」というジャンルで、1問のクイズを出題すること。1行目に問題文を記載し、2行目にその答えだけを記載すること。それ以降の行は一切作成せず、3行目以降は不要です。'
-    response = co.chat(
+    response = await co.chat(
         message=prompt,
         model='command-r-plus',
         temperature=1,
@@ -692,7 +696,10 @@ async def quiz(ctx, *, genre: str = None):
 
             # 回答審査
             validation_prompt = f'「"{question}"」という問題に対する模範解答は"{answer}"だが、次の回答は正解になるか？：「"{user_answer}"」正解になる場合はtrue、不正解になる場合はfalse、ギブアップと言っている場合はgiveと応答すること。なお、似ている回答でも正解とする。'
-            validation_response = model.generate_content(validation_prompt)
+            validation_response = await geminiclient.aio.models.generate_content(
+                model='gemini-1.5-flash',
+                contents=f"{validation_prompt}"
+            )
             validation_result = validation_response.text.strip().lower()
 
             if validation_result == 'give':
