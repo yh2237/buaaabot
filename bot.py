@@ -2,6 +2,8 @@ import urllib.parse
 import aiohttp
 import typing
 import discord
+from bs4 import BeautifulSoup
+from discord.ui import View, Button
 from discord import Client, Intents, Interaction, Member
 from discord.app_commands import (
     CommandTree,
@@ -27,9 +29,14 @@ import textwrap
 from google import genai
 from IPython.display import display
 from IPython.display import Markdown
-
 import sys
-
+import re
+import random
+import numpy as np
+from googlesearch import search
+import httpx
+import wave
+from collections import Counter
 
 def to_markdown(text):
   text = text.replace('•', '  *')
@@ -72,6 +79,8 @@ for i in range(len(filepath_temp)):
 # Discordのインテント指定
 intents = discord.Intents.all()
 intents.message_content = True
+intents.guilds = True
+intents.voice_states = True
 bot = commands.Bot(command_prefix='bu!', intents=intents)
 
 # 画像検索のやつのキー(Microsoft Bing Search API)
@@ -90,6 +99,9 @@ removebg_key = os.getenv('REMOVEBG')
 
 # Cohere Chat API Key
 co = cohere.AsyncClient(os.getenv('COHERE'))
+
+# JSONファイルに格納されたプレイヤーの所持金
+money_file = "money.json"
 
 GOOGLE_API_KEY=os.getenv('GEMINI')
 
@@ -209,7 +221,7 @@ async def webpageshot(ctx, url:str):
     options.add_argument("--window-size=1920,1080")  
     
     try:
-        driver = webdriver.Chrome()
+        driver = webdriver.Chrome(options=options)
         await message.edit(content=(("読み込み中です...")))
         driver.get(url)    
         driver.execute_script("return document.body.scrollHeight") 
@@ -228,12 +240,12 @@ async def webpageshot(ctx, url:str):
         embed = discord.Embed(title=(("Webページのスクリーンショット")), description=f"[URL]({url})", color=discord.Color.blue())
         embed.set_image(url="attachment://screenshot.png")
         
-        translated_message = _('取得にかかった時間: {time:.2f}秒').format(time=elapsed_time)
+        translated_message = ('取得にかかった時間: {time:.2f}秒').format(time=elapsed_time)
         embed.set_footer(text=(translated_message))
         await ctx.reply(embed=embed, file=discord.File(image_stream, filename="screenshot.png"))
         
     except Exception as e:
-        translated_message = _(f"エラーが発生しました：{e}").format(e=e)
+        translated_message = (f"エラーが発生しました：{e}").format(e=e)
         await ctx.send(translated_message)
 
 @bot.hybrid_command(name="trace", aliases=['t', 'a', "anime"], brief="スクリーンショット画像からアニメを特定します")
@@ -320,13 +332,8 @@ async def name(ctx, *, name:str):
 async def reineandbuachi(ctx):
     await ctx.reply('Reine & Buachi House!')
 
-import aiohttp
-import discord
-from discord.ext import commands
-from aiohttp import ClientSession
-
 # 画像検索
-@bot.hybrid_command(name="imagesearch", aliases=['image', 'im', "search"], brief="Bing画像検索をします")
+@bot.hybrid_command(name="imagesearch", aliases=['image', 'im', "searchim"], brief="Bing画像検索をします")
 @allowed_installs(guilds=True, users=True)
 async def imagesearch(ctx, word: str):
     if ctx.interaction:
@@ -422,8 +429,6 @@ async def loudness(ctx, file: discord.Attachment):
     loudness = audio_data.dBFS
     loudness_penalty = loudness - (-17.5)
     await ctx.reply(f'この音声のYouTubeでのラウドネスペナルティは -{loudness_penalty:.2f}です')
-
-import aiohttp
 
 # 背景切り抜き
 @bot.hybrid_command(name='background', aliases=['bg', 'back', 'haikei'], brief="添付画像の背景を削除")
@@ -555,7 +560,7 @@ class ContextMenu(discord.app_commands.ContextMenu):
         model_choices = ["u2net", "u2net_human_seg", "u2netp"]
         with open(file_path, "rb") as f:
             data = f.read()
-            img = remove(data, model_name=model_choices[0],
+            img = bg_remove(data, model_name=model_choices[0],
                          alpha_matting=True,
                          alpha_matting_foreground_threshold=240,
                          alpha_matting_background_threshold=10,
@@ -652,6 +657,106 @@ async def imagesearch(ctx, word: str):
 )   
     await ctx.reply(replace_at(response.text))
 
+
+search_results = []
+# 検索（仮
+class SearchResultsView(View):
+    def __init__(self, ctx, results):
+        super().__init__()
+        self.ctx = ctx
+        self.results = results
+        self.index = 1
+        self.message = None
+
+        # ボタンを追加
+        self.prev_button = Button(label="⬅️", style=discord.ButtonStyle.primary)
+        self.next_button = Button(label="➡️", style=discord.ButtonStyle.primary)
+
+        self.prev_button.callback = self.prev_result
+        self.next_button.callback = self.next_result
+
+        self.add_item(self.prev_button)
+        self.add_item(self.next_button)
+
+    async def send_initial_message(self):
+        embed = await self.create_embed(self.results[self.index])
+        self.message = await self.ctx.send(embed=embed, view=self)
+
+    async def update_message(self):
+        embed = await self.create_embed(self.results[self.index])
+        await self.message.edit(embed=embed, view=self)
+
+    async def prev_result(self, interaction: discord.Interaction):
+        if self.index > 0:
+            self.index -= 1
+            await self.update_message()
+        await interaction.response.defer()
+
+    async def next_result(self, interaction: discord.Interaction):
+        if self.index < len(self.results):
+            self.index += 1
+            await self.update_message()
+        await interaction.response.defer()
+
+    async def create_embed(self, result):
+        url, _ = result
+        image_url, description, title = await self.get_og_data(url)
+
+        embed = discord.Embed(title=title, url=url, description=description, color=discord.Color.blue())
+        if image_url:
+            embed.set_image(url=image_url)
+        embed.set_footer(text=f"結果 {self.index} / {len(self.results)}")
+
+        return embed
+
+    async def get_og_data(self, url):
+        image_url = None
+        description = "No description available."
+        title = "No title available."
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=5) as response:
+                    if response.status != 200:
+                        return image_url, description, title
+                    
+                    html = await response.text()
+                    soup = BeautifulSoup(html, "html.parser")
+
+                    # Open Graph data
+                    og_image = soup.find("meta", property="og:image")
+                    og_title = soup.find("meta", property="og:title")
+                    og_description = soup.find("meta", property="og:description")
+
+                    if og_image and og_image.get("content"):
+                        image_url = og_image["content"]
+                    if og_title and og_title.get("content"):
+                        title = og_title["content"]
+                    if og_description and og_description.get("content"):
+                        description = og_description["content"]
+                    
+        except Exception:
+            pass
+
+        # Return image_url, description, title
+        return image_url, description, title
+
+@bot.hybrid_command(name="search", aliases=['s'], brief="Google検索を行う")
+async def search_google(ctx, *, query: str):
+    await ctx.defer()
+    try:
+        results = [(result, result) for result in search(query, num_results=5)]
+        if not results:
+            await ctx.send("検索結果が見つかりませんでした。")
+            return
+
+        view = SearchResultsView(ctx, results)
+        await view.send_initial_message()
+
+    except Exception as e:
+        await ctx.send(f"エラーが発生しました: {str(e)}")
+
+
 # QuizAI
 @bot.hybrid_command(name="quiz", aliases=['q', 'qz'], brief="Quiz")
 async def quiz(ctx, *, genre: str = None):
@@ -661,12 +766,12 @@ async def quiz(ctx, *, genre: str = None):
     if ctx.interaction:
         await ctx.interaction.response.defer()
     print ('クイズAI')
+
+    # Gemini でクイズ生成
     prompt = f'「{genre}」というジャンルで、1問のクイズを出題すること。1行目に問題文を記載し、2行目にその答えだけを記載すること。それ以降の行は一切作成せず、3行目以降は不要です。'
-    response = await co.chat(
-        message=prompt,
-        model='command-r-plus',
-        temperature=1,
-        connectors=[{"id": "web-search"}]
+    response = await geminiclient.aio.models.generate_content(
+        model='gemini-2.0-flash',
+        contents=f"{prompt}"
     )
 
     quiz_text = response.text.strip().split('\n')
@@ -721,5 +826,41 @@ async def quiz(ctx, *, genre: str = None):
 
     if not correct:
         await ctx.send(replace_at(f"時間切れです。正解は {answer} です。"))
+
+@bot.hybrid_command(name="roll", aliases=['dice', 'saikoro'], brief="サイコロを振ります！") 
+@allowed_installs(guilds=True, users=True)
+async def roll(ctx, dice: str): 
+    match = re.fullmatch(r"(\d+)d(\d+)", dice)
+    if not match:
+        await ctx.reply("正しい形式で入力するのだわ 例: `2d6`")
+        return
+    
+    num_dice, sides = map(int, match.groups())
+
+    if num_dice <= 0 or sides <= 0:
+        await ctx.reply("ダイスの数と面の数は1以上にするのだわ")
+        return
+
+    if num_dice > 30:
+        await ctx.reply("ダイスの数は30以下にするのだわ")
+        return
+
+    if sides > 50000:
+        await ctx.reply("ダイスの面の数は50000以下にするのだわ")
+        return
+
+    rolls = [random.randint(1, sides) for _ in range(num_dice)]
+    total = sum(rolls)
+    
+    embed = discord.Embed(title=f"合計: {total}", color=discord.Color.blue())
+
+    if num_dice < 15:
+        for i, roll in enumerate(rolls, start=1):
+            embed.add_field(name=f"ダイス {i}", value=str(roll), inline=True)
+
+    embed.set_footer(text=f"{ctx.author.display_name} | {dice}")
+
+    await ctx.reply(embed=embed)
+
 
 bot.run(TOKEN)
