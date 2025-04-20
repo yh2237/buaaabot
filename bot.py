@@ -10,6 +10,7 @@ from discord.app_commands import (
     allowed_installs, guild_install, user_install,
     allowed_contexts, dm_only, guild_only, private_channel_only,
 )
+import yaml
 import cohere
 import datetime
 from discord.ext import commands
@@ -107,6 +108,10 @@ GOOGLE_API_KEY=os.getenv('GEMINI')
 
 geminiclient = genai.Client(api_key=GOOGLE_API_KEY)
 
+# config.ymlの読み込み
+with open("config/config.yml", "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
+
 # 定義ここまで
 
 # ===========================================================
@@ -117,7 +122,7 @@ geminiclient = genai.Client(api_key=GOOGLE_API_KEY)
 @bot.event
 async def on_ready():
     print('きどーしたよ')
-    channel = bot.get_channel(1210374862217158776) # 起動通知をするチャンネルをここに入れる
+    channel = bot.get_channel(config["startNoticeChannel"])
     day = dt_now.strftime('%Y年%m月%d日 %H:%M:%S')
     # セルフホストならここを変える
     mes = f'''以下の条件で、BuaaaBotが今起動したことをお知らせする文章で応答してください。
@@ -127,13 +132,15 @@ async def on_ready():
     ・語尾は「にゃん！」
     ・BuaaaBotのオーナーはぶあち(Buachi)
     '''
-    response = await co.chat(
-        message=mes, 
-        model="command-r-plus", 
-        temperature=0.9,
-        connectors=[{"id": "web-search"}]
-    )
-    await channel.send(response.text)
+    if config["startNotice"]:
+        response = await co.chat(
+            message=mes, 
+            model="command-r-plus", 
+            temperature=0.9,
+            connectors=[{"id": "web-search"}]
+        )
+        await channel.send(response.text)
+        
     await bot.tree.sync() # スラッシュコマンド更新
 
 @bot.hybrid_command(name="about", brief="Botの情報を表示します")
@@ -436,16 +443,103 @@ async def loudness(ctx, file: discord.Attachment):
 async def background(ctx, url: typing.Optional[discord.Attachment]):
     if ctx.interaction:
         await ctx.interaction.response.defer()
-    url = url.url
-    if url is None:
+    if url is not None:
+        filename = url.filename
+        url = url.url
+    else:
         # RIP チャンネル内画像切り抜き
         async for message in ctx.channel.history(limit=15):
-            if message.attachments and message.attachments[0].content_type.startswith('image'):
+            if message.attachments and message.attachments[0].content_type and message.attachments[0].content_type.startswith('image'):
                 url = message.attachments[0].url
+                filename = message.attachments[0].filename
                 break
         else:
-            await ctx.send(("チャンネル内に画像が見つかりませんでした。"))
+            await ctx.send("チャンネル内に画像が見つかりませんでした。")
             return
+
+    ext = os.path.splitext(filename)[1].lower()
+    input_path = "input" + ext
+    output_path = "output" + ext
+
+    # GIFの透過処理
+    if ext == ".gif":
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    with open(input_path, "wb") as f:
+                        f.write(await resp.read())
+                else:
+                    await ctx.send("GIFのダウンロードに失敗しました。")
+                    return
+
+        try:
+            result = await asyncio.create_subprocess_exec(
+                sys.executable, "util/removal.py", input_path, output_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+
+            if result.returncode != 0:
+                await ctx.send("GIFの背景除去に失敗しました。")
+                print("stderr:", stderr.decode())
+                return
+
+            await ctx.send(file=discord.File(output_path))
+
+        except Exception as e:
+            await ctx.send("GIFの処理中にエラーが発生しました。")
+            print("Exception:", e)
+            
+        finally:
+            for path in [input_path, output_path]:
+                if os.path.exists(path):
+                    os.remove(path)
+        return
+    
+    if ext == ".webp":
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    with open(input_path, "wb") as f:
+                        f.write(await resp.read())
+                else:
+                    await ctx.send("WEBPのダウンロードに失敗しました。")
+                    return
+
+        try:
+            result = await asyncio.create_subprocess_exec(
+                sys.executable, "util/removal.py", input_path, output_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await result.communicate()
+
+            if result.returncode != 0:
+                await ctx.send("WEBPの背景除去に失敗しました。")
+                print("stderr:", stderr.decode())
+                return
+
+            await ctx.send(file=discord.File(output_path))
+
+        except Exception as e:
+            await ctx.send("WEBPの処理中にエラーが発生しました。")
+            print("Exception:", e)
+            
+        finally:
+            for path in [input_path, output_path]:
+                if os.path.exists(path):
+                    os.remove(path)
+        return
+
+
+    error_messages = {
+        'multiple_sources': ("一度に2枚以上送信しないでください。"),
+        'missing_source': ("ファイルが破損しているようです。"),
+        'maximum file size': ("ファイルのサイズが大きすぎます。"),
+        'unknown_foreground': ("背景が検出されませんでした。"),
+        'insufficient_credits': ("クレジットが不足しています。")
+    }
 
     # 画像の背景を削除
     async with aiohttp.ClientSession() as session:
@@ -454,36 +548,22 @@ async def background(ctx, url: typing.Optional[discord.Attachment]):
             data={'image_url': url, 'size': 'auto'},
             headers={'X-Api-Key': removebg_key},
         ) as response:
+            response_data = await response.read()
+
             if response.status == 200:
                 with open('no-bg.png', 'wb') as out:
-                    out.write(await response.read())
+                    out.write(response_data)
                 await ctx.send(file=discord.File('no-bg.png'))
+                os.remove('no-bg.png')
             else:
-                print("Error:", response.status, await response.text())
-                await ctx.send(("エラーが発生しました。"))
-
-    # エラー
-    error_messages = {
-        'gif': (("GIFには現在対応していません。将来対応する可能性があります。")),
-        'multiple_sources': (("一度に2枚以上送信しないでください。")),
-        'missing_source': (("ファイルが破損しているようです。")),
-        'maximum file size': (("ファイルのサイズが大きすぎます。")),
-        'unknown_foreground': (("背景が検出されませんでした。")),
-        'insufficient_credits': (("クレジットが不足しています。"))
-    }
-
-    # エラーメッセージをチェック
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            'https://api.remove.bg/v1.0/removebg',
-            data={'image_url': url, 'size': 'auto'},
-            headers={'X-Api-Key': removebg_key},
-        ) as response:
-            if response.status == 200:
+                text = response_data.decode()
                 for error, message in error_messages.items():
-                    if error in await response.text():
+                    if error in text:
                         await ctx.send(message)
                         break
+                else:
+                    await ctx.send("不明なエラーが発生しました。")
+
 
 
 # removebgbeta
