@@ -1,0 +1,2 @@
+startNotice: true # 起動通知 ON OFF
+startNoticeChannel: 0000000000000000000 # 起動通知をするチャンネル
